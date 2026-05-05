@@ -1,72 +1,83 @@
 import grpc
 from concurrent import futures
 import os
-import google.generativeai as genai
+from groq import Groq
 from dotenv import load_dotenv
+from pathlib import Path
 
 # Import the generated gRPC code
 import inference_pb2
 import inference_pb2_grpc
 
-# Load environment variables from the .env file
-load_dotenv()
+# --- ENVIRONMENT FIX ---
+# This looks for the .env file in the parent directory if it's not found locally
+env_path = Path(__file__).parent.parent / '.env'
+load_dotenv(dotenv_path=env_path)
 
-# Configure the Gemini API
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-# Using the flash model for fast inference
-model = genai.GenerativeModel('gemini-2.5-flash') 
+# Verify the key is actually loading (printing just the prefix for safety)
+api_key = os.environ.get("GROQ_API_KEY")
+if api_key:
+    print(f"✅ API Key loaded: {api_key[:6]}...")
+else:
+    print("❌ ERROR: GROQ_API_KEY not found in environment!")
 
 class AIInferenceService(inference_pb2_grpc.AIInferenceServicer):
     
-    # --- Task 2: Unary RPC (Sentiment Analysis) ---
     def AnalyzeSentiment(self, request, context):
         print(f"[Server] Received Sentiment Request: '{request.text}'")
         
-        # We instruct Gemini to return a strict format so we can parse it
-        prompt = f"""
-        Analyze the sentiment of the following text. 
-        Return ONLY a single line with the label (POSITIVE, NEGATIVE, or NEUTRAL) 
-        and a confidence score (0.0 to 1.0) separated by a comma.
-        Example: POSITIVE, 0.95
-        
-        Text: '{request.text}'
-        """
-        
         try:
-            # Call the Gemini API
-            response = model.generate_content(prompt)
+            # Task 2: Implement Unary RPC (Sentiment Analysis)
+            # Initializing inside the method to ensure thread-safety
+            client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
             
-            # Parse the response (e.g., "POSITIVE, 0.95")
-            parts = response.text.strip().split(',')
-            label = parts[0].strip().upper()
-            score = float(parts[1].strip())
+            completion = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Analyze sentiment. Return ONLY: LABEL, SCORE. Labels: POSITIVE, NEGATIVE, NEUTRAL."
+                    },
+                    {
+                        "role": "user",
+                        "content": request.text
+                    }
+                ]
+            )
+            
+            raw_text = completion.choices[0].message.content.strip()
+            print(f"[Server] Groq Raw Output: {raw_text}")
+            
+            # Robust Parsing for the gRPC response[cite: 1]
+            if ',' in raw_text:
+                parts = raw_text.split(',')
+                label = parts[0].strip().upper()
+                score = float(parts[1].strip())
+            else:
+                label = "POSITIVE" if "POSITIVE" in raw_text.upper() else "NEUTRAL"
+                score = 0.9
             
         except Exception as e:
-            print(f"[Server] Error calling Gemini: {e}")
+            print(f"[Server] Error calling Groq: {e}")
             label = "ERROR"
             score = 0.0
 
         print(f"[Server] AI Responded - Label: {label}, Score: {score}")
         
-        # Return the strictly typed protobuf response
+        # Return the strictly typed protobuf response[cite: 1]
         return inference_pb2.SentimentResponse(
             label=label,
             confidence_score=score
         )
 
-# --- Server Startup Logic ---
 def serve():
-    # Create a gRPC server with a thread pool
+    # gRPC server uses HTTP/2 for high-performance AI inference[cite: 1]
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    
-    # Attach our AI service to the server
     inference_pb2_grpc.add_AIInferenceServicer_to_server(AIInferenceService(), server)
     
-    # Listen on port 50051 (standard gRPC port)
+    # Listening on port 50051 as required by the task[cite: 1]
     server.add_insecure_port('[::]:50051')
-    print("🚀 gRPC AI Microservice running on port 50051...")
-    
-    # Start the server and keep it running
+    print("🚀 gRPC AI Microservice (Groq) running on port 50051...")
     server.start()
     server.wait_for_termination()
 
