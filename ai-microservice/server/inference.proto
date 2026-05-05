@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package inference;
+
+// Task 1: The AI Inference Service definition
+service AIInference {
+  // Task 2: Unary RPC (Request -> Response)
+  rpc AnalyzeSentiment (SentimentRequest) returns (SentimentResponse);
+
+  // Task 3: Server-Streaming RPC (Request -> Stream)
+  rpc StreamTextGeneration (GenerationRequest) returns (stream GenerationResponse);
+
+  // Task 4: Client-Streaming RPC (Stream -> Response)
+  rpc SummarizeBatch (stream BatchRequest) returns (BatchResponse);
+
+  // Task 5: Bidirectional-Streaming RPC (Stream <-> Stream)
+  rpc ChatAssistant (stream ChatMessage) returns (stream ChatMessage);
+}
+
+// --- Messages for Task 2: Sentiment Analysis ---
+message SentimentRequest {
+  string text = 1;
+}
+
+message SentimentResponse {
+  string label = 1; // e.g., "POSITIVE", "NEGATIVE"
+  float confidence_score = 2;
+}
+
+// --- Messages for Task 3: Real-time LLM Generation ---
+message GenerationRequest {
+  string prompt = 1;
+}
+
+message GenerationResponse {
+  string token = 1; // A single piece of generated text (the "typing" effect)
+}
+
+// --- Messages for Task 4: Batch Summarization ---
+message BatchRequest {
+  string chunk = 1; // A piece of the massive document
+}
+
+message BatchResponse {
+  string summary = 1; // The final aggregated summary
+}
+
+// --- Messages for Task 5: Live Chat Assistant ---
+message ChatMessage {
+  string text = 1; 
+}
